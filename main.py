@@ -2,6 +2,10 @@ import sys
 from pathlib import Path
 
 import cv2 as cv
+import numpy as np
+
+from median_filter import adaptive_median_filter
+from snp import get_noise_matrix, get_noise_coordinates
 
 
 def print_fatal(s: str):
@@ -30,18 +34,47 @@ def get_input_path() -> Path:
     return input_path
 
 
+def get_color_coords(img, colors):
+    row, col = img.shape
+
+    coords = set()
+
+    snp = np.zeros_like(img)
+
+    for v in range(row):
+        for u in range(col):
+            if img[v, u] in colors:
+                coords.add((u, v))
+
+            snp[v, u] = img[v, u] if img[v, u] in colors else 127
+
+    cv.imwrite("snp.jpg", img=snp)
+
+    return coords
+
+
 def get_input_image():
     input_path = get_input_path()
-    return cv.imread(str(input_path))
+    return cv.imread(str(input_path), 0)
+
+
+def magnitude_spectrum(img):
+    f = np.fft.fft2(img)
+    fshift = np.fft.fftshift(f)
+    return 20 * np.log(np.abs(fshift))
 
 
 def main():
     validate_version()
     img = get_input_image()
 
-    cv.imshow("input", img)
-    cv.waitKey(0)
-    cv.destroyAllWindows()
+    sp_noise_matrix = get_noise_matrix(img, 3, 0.74, (20, 210))
+    cv.imwrite(filename="sp_noise.jpg", img=sp_noise_matrix)
+
+    coords = get_noise_coordinates(noise_matrix=sp_noise_matrix)
+    denoise_img = adaptive_median_filter(img, 3, coords)
+
+    cv.imwrite(filename="denoise.jpg", img=denoise_img)
 
 
 if __name__ == '__main__':
