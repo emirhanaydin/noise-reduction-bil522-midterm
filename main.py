@@ -1,11 +1,13 @@
 import sys
 from pathlib import Path
 
-import cv2 as cv
-import numpy as np
+import cv2
+import matplotlib.pyplot as plt
 
-from median_filter import adaptive_median_filter
-from snp import get_noise_matrix, get_noise_coordinates
+from mean_square_error import mean_square_error
+from notch_filter import notch_filter
+from snp import sp_denoise
+from unsharp_mask import unsharp_mask
 
 
 def print_fatal(s: str):
@@ -24,57 +26,52 @@ def validate_path(path: Path):
         print_fatal("Specified file path is invalid.")
 
 
-def get_input_path() -> Path:
-    argv = sys.argv
-    if len(argv) < 2:
-        print_fatal(f"Input file path must be specified as command line argument.")
-
-    input_path = Path(argv[1])
-    validate_path(input_path)
-    return input_path
+def read_image(path: str):
+    path = Path(path)
+    validate_path(path)
+    return cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
 
 
-def get_color_coords(img, colors):
-    row, col = img.shape
-
-    coords = set()
-
-    snp = np.zeros_like(img)
-
-    for v in range(row):
-        for u in range(col):
-            if img[v, u] in colors:
-                coords.add((u, v))
-
-            snp[v, u] = img[v, u] if img[v, u] in colors else 127
-
-    cv.imwrite("snp.jpg", img=snp)
-
-    return coords
+def read_input_image():
+    return read_image("images/input.png")
 
 
-def get_input_image():
-    input_path = get_input_path()
-    return cv.imread(str(input_path), 0)
-
-
-def magnitude_spectrum(img):
-    f = np.fft.fft2(img)
-    fshift = np.fft.fftshift(f)
-    return 20 * np.log(np.abs(fshift))
+def read_original_image():
+    return read_image("images/original.png")
 
 
 def main():
     validate_version()
-    img = get_input_image()
+    in_img = read_input_image()
+    orig_img = read_original_image()
 
-    sp_noise_matrix = get_noise_matrix(img, 3, 0.74, (20, 210))
-    cv.imwrite(filename="sp_noise.jpg", img=sp_noise_matrix)
+    step1_img = notch_filter(in_img)
+    step2_img = sp_denoise(step1_img)
+    step3_img = unsharp_mask(step2_img, sigma=11, kernel_size=(11, 11))
 
-    coords = get_noise_coordinates(noise_matrix=sp_noise_matrix)
-    denoise_img = adaptive_median_filter(img, 3, coords)
+    plots = [
+        [in_img, "Input Image"],
+        [step1_img, "Periodic Noise Filter"],
+        [step2_img, "S&P Noise Filter"],
+        [step3_img, "Sharpened - Output Image"],
+    ]
 
-    cv.imwrite(filename="denoise.jpg", img=denoise_img)
+    plt.rcParams["figure.figsize"] = (20, 10)
+    _, axs = plt.subplots(ncols=len(plots))
+    axs = axs.flatten()
+
+    for p, ax in zip(plots, axs):
+        im, title = p
+        ax = ax
+        ax.set_title(title)
+        ax.imshow(im, cmap="gray")
+
+    plt.show()
+
+    print(mean_square_error(orig_img, in_img))
+    print(mean_square_error(orig_img, step1_img))
+    print(mean_square_error(orig_img, step2_img))
+    print(mean_square_error(orig_img, step3_img))
 
 
 if __name__ == '__main__':

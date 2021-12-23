@@ -1,40 +1,40 @@
 import cv2
 import numpy as np
 
+from median_filter import selective_median_filter
 
-def get_noise_matrix(img, kernel_size=3, deviation_tolerance=0.6, threshold=(127, 128)):
+
+def read_noise_matrix():
+    img = cv2.imread("images/snp_noise.png", cv2.IMREAD_UNCHANGED)
+    if img is None:
+        return None
+
+    return img
+
+
+def scan_noise_matrix(img, kernel_size=3, deviation_tolerance=0.5, threshold=(127, 128)):
     pad_size = int((kernel_size - 1) / 2)
     pad_img = cv2.copyMakeBorder(img, *[pad_size] * 4, cv2.BORDER_DEFAULT)
 
-    result = np.zeros_like(img)
-
-    row, col = img.shape
-
+    h, w = img.shape
+    result = np.zeros([h, w, 4], np.uint8)
     low, high = threshold
-
-    for v in range(row):
-        for u in range(col):
-            kernel = pad_img[v: v + kernel_size, u: u + kernel_size].reshape(-1)
-            mean, stddev = cv2.meanStdDev(kernel)
-            el = img[v, u]
-            if abs(el - mean) * deviation_tolerance < stddev:
-                result[v, u] = 127
+    for v in range(h):
+        for u in range(w):
+            k = pad_img[v: v + kernel_size, u: u + kernel_size].reshape(-1)
+            mean, stddev = cv2.meanStdDev(k)
+            p = img[v, u]
+            if abs(p - mean) * deviation_tolerance < stddev:
                 continue
 
-            result[v, u] = 0 if el <= low else 255 if el > high else 127
+            result[v, u] = [0, 0, 0, 255] if p <= low else 255 if p > high else 0
 
     return result
 
 
-def get_noise_coordinates(noise_matrix) -> set:
-    result = set()
+def sp_denoise(img):
+    sp_noise_matrix = read_noise_matrix()
+    if sp_noise_matrix is None:
+        sp_noise_matrix = scan_noise_matrix(img, 3, 0.74)
 
-    row, col = noise_matrix.shape
-
-    for v in range(row):
-        for u in range(col):
-            el = noise_matrix[v, u]
-            if el != 127:
-                result.add((v, u))
-
-    return result
+    return selective_median_filter(img, 3, sp_noise_matrix)
